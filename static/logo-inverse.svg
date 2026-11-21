@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" role="img" aria-label="Vartalap">
+  <rect x="2" y="6" width="32" height="32" rx="4" fill="#0f62fe"/>
+  <path fill="#ffffff" d="M8.5 14h4.2l5.3 11.2L19.3 14h4.2L19 31h-2L8.5 14Z"/>
+  <text x="46" y="31" font-family="IBM Plex Sans, Helvetica Neue, Arial, sans-serif" font-size="24" font-weight="600" fill="#f4f4f4" letter-spacing="-0.5">vartalap</text>
+  <circle cx="194" cy="31" r="3" fill="#78a9ff"/>
+</svg>

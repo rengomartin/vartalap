@@ -1,0 +1,14 @@
+{{define "message"}}
+<div class="msg-row{{if .Mine}} msg-own{{end}}{{if .Grouped}} msg-grouped{{end}}"
+     data-sender="{{senderKey .DeviceID}}" data-id="{{.ID}}" data-nonce="{{.Nonce}}" data-mine="{{.Mine}}">
+  <span class="msg-avatar" aria-hidden="true">{{initial .SenderName}}</span>
+  <div class="msg-content">
+    <div class="msg-meta">
+      <span class="msg-author">{{.SenderName}}</span>
+      {{if .Mine}}<span class="msg-you">you</span>{{end}}
+      <time class="msg-time" datetime="{{rfc3339 .CreatedAt}}" data-ts="{{.CreatedAt.UnixMilli}}" title="{{timeTitle .CreatedAt}}">{{formatTime .CreatedAt}}</time>
+    </div>
+    <div class="msg-bubble">{{.Content}}</div>
+  </div>
+</div>
+{{end}}

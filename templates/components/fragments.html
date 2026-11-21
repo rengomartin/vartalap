@@ -1,0 +1,30 @@
+{{define "message-fragment"}}
+<div id="message-list" hx-swap-oob="beforeend">
+  {{template "message" .Message}}
+</div>
+{{end}}
+
+{{define "presence-fragment"}}
+<span id="online-count" hx-swap-oob="true">{{.Count}}</span>
+{{end}}
+
+{{define "notice-fragment"}}
+<div id="toast-area" hx-swap-oob="beforeend">
+  <div class="toast {{if eq .Level "error"}}toast--error{{end}}" role="status">
+    <span class="toast-accent" aria-hidden="true"></span>
+    <span>{{.Text}}</span>
+  </div>
+</div>
+{{end}}
+
+{{define "name-fragment"}}
+<span id="name-display" hx-swap-oob="outerHTML" class="name-label">{{.Name}}</span>
+<span id="name-avatar" hx-swap-oob="outerHTML" class="avatar avatar--sm" aria-hidden="true">{{initial .Name}}</span>
+{{end}}
+
+{{define "history"}}
+{{template "messages" .}}
+<div id="load-more" hx-swap-oob="outerHTML" {{if .HasMore}}hx-get="/history?before={{.OldestID}}" hx-trigger="load-older once" hx-target="#load-more" hx-swap="afterend"{{end}} class="load-more">
+  {{if .HasMore}}Loading older messages…{{else}}Beginning of conversation{{end}}
+</div>
+{{end}}
