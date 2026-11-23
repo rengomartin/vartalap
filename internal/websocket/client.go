@@ -8,82 +8,92 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-
-	"vartalap/internal/models"
 )
 
 const (
 	writeWait     = 10 * time.Second
 	pongWait      = 60 * time.Second
 	pingPeriod    = 50 * time.Second
-	sendQueueSize = 32
+	sendQueueSize = 512
+	maxAckBatch   = 100
 )
 
-// MessageStore is the persistence surface needed by a client.
-type MessageStore interface {
-	CreateMessage(context.Context, *models.Message) error
-	GetUser(context.Context, string) (models.User, bool, error)
-}
-
-// RateLimiter slows spam from a single anonymous device.
+// RateLimiter slows spam from a single account.
 type RateLimiter interface {
 	Allow(key string, now time.Time) bool
 }
-
-// Validator normalises and validates raw message text.
-type Validator func(raw string, maxRunes int) (string, error)
 
 // ClientConfig contains everything a client needs to run.
 type ClientConfig struct {
 	Hub             *Hub
 	Conn            *websocket.Conn
+	UserID          string
 	DeviceID        string
-	Store           MessageStore
+	Store           AckStore
 	Limiter         RateLimiter
-	Renderer        Renderer
-	Validate        Validator
 	MaxMessageBytes int64
-	MaxMessageRunes int
 	Logger          *log.Logger
 }
 
-// Client is one browser tab's WebSocket connection.
+// Client is one browser tab's authenticated WebSocket connection.
 type Client struct {
-	hub             *Hub
-	conn            *websocket.Conn
-	deviceID        string
-	store           MessageStore
-	limiter         RateLimiter
-	renderer        Renderer
-	validate        Validator
-	maxMessageBytes int64
-	maxMessageRunes int
-	logger          *log.Logger
+	hub      *Hub
+	conn     *websocket.Conn
+	UserID   string
+	DeviceID string
+	store    AckStore
+	limiter  RateLimiter
+	logger   *log.Logger
+	maxBytes int64
 
 	send      chan []byte
 	done      chan struct{}
 	closeOnce sync.Once
+	typing    map[string]time.Time
 }
 
 // NewClient wraps an upgraded WebSocket connection.
 func NewClient(config ClientConfig) *Client {
 	return &Client{
-		hub:             config.Hub,
-		conn:            config.Conn,
-		deviceID:        config.DeviceID,
-		store:           config.Store,
-		limiter:         config.Limiter,
-		renderer:        config.Renderer,
-		validate:        config.Validate,
-		maxMessageBytes: config.MaxMessageBytes,
-		maxMessageRunes: config.MaxMessageRunes,
-		logger:          config.Logger,
-		send:            make(chan []byte, sendQueueSize),
-		done:            make(chan struct{}),
+		hub:      config.Hub,
+		conn:     config.Conn,
+		UserID:   config.UserID,
+		DeviceID: config.DeviceID,
+		store:    config.Store,
+		limiter:  config.Limiter,
+		logger:   config.Logger,
+		maxBytes: config.MaxMessageBytes,
+		send:     make(chan []byte, sendQueueSize),
+		done:     make(chan struct{}),
+		typing:   make(map[string]time.Time),
 	}
 }
 
-// Start registers the client with the hub, then runs the read loop until disconnect.
+// Enqueue adds a pre-marshalled event to this client's outbound queue. It may
+// be called before Start, which is how pending messages are delivered.
+func (c *Client) Enqueue(payload []byte) {
+	c.enqueue(payload)
+}
+
+// EnqueueJSON marshals and enqueues an event.
+func (c *Client) EnqueueJSON(event any) {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	c.enqueue(payload)
+}
+
+func (c *Client) enqueue(payload []byte) {
+	select {
+	case c.send <- payload:
+	default:
+		// A slow client must never block routing for everyone else.
+		c.close()
+	}
+}
+
+// Start registers the client, then runs the read loop until disconnect.
 func (c *Client) Start() {
 	c.hub.Register(c)
 	go c.writePump()
@@ -94,25 +104,20 @@ func (c *Client) Start() {
 func (c *Client) close() {
 	c.closeOnce.Do(func() {
 		close(c.done)
-		c.conn.Close()
+		_ = c.conn.Close()
 	})
 }
 
-// Notify sends a toast fragment to this client only.
-func (c *Client) Notify(level, text string) {
-	html, err := c.renderer.RenderNotice(level, text)
-	if err != nil {
-		return
-	}
-	select {
-	case c.send <- html:
-	default:
-	}
+type inboundEvent struct {
+	Type           string   `json:"type"`
+	ConversationID string   `json:"conversationId"`
+	State          string   `json:"state"`
+	MessageIDs     []string `json:"messageIds"`
 }
 
 func (c *Client) readPump() {
-	c.conn.SetReadLimit(c.maxMessageBytes)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetReadLimit(c.maxBytes)
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
 		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
@@ -127,62 +132,83 @@ func (c *Client) readPump() {
 }
 
 func (c *Client) handlePayload(payload []byte) {
-	var incoming struct {
-		Content string `json:"content"`
-		Nonce   string `json:"nonce"`
-	}
-	if err := json.Unmarshal(payload, &incoming); err != nil {
-		c.Notify("error", "That message could not be read.")
+	var event inboundEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		c.notify("That request could not be read.")
 		return
 	}
-	content, err := c.validate(incoming.Content, c.maxMessageRunes)
-	if err != nil {
-		c.Notify("error", err.Error())
-		return
+	switch event.Type {
+	case "ping":
+		c.EnqueueJSON(map[string]string{"type": "pong"})
+	case "ack":
+		c.handleAck(event.MessageIDs)
+	case "typing":
+		c.handleTyping(event)
+	default:
+		c.notify("Unsupported real-time event.")
 	}
-	if !c.limiter.Allow(c.deviceID, time.Now()) {
-		c.Notify("error", "Slow down a little before sending another message.")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	user, found, err := c.store.GetUser(ctx, c.deviceID)
-	if err != nil || !found {
-		c.Notify("error", "Your session has expired. Please reload the page.")
-		return
-	}
-
-	message := models.Message{
-		DeviceID:   c.deviceID,
-		SenderName: user.DisplayName,
-		Content:    content,
-		Nonce:      cleanNonce(incoming.Nonce),
-	}
-	if err := c.store.CreateMessage(ctx, &message); err != nil {
-		if c.logger != nil {
-			c.logger.Printf("persist message: %v", err)
-		}
-		c.Notify("error", "Message could not be saved. Please try again.")
-		return
-	}
-	c.hub.Broadcast(message)
 }
 
-// cleanNonce keeps client-supplied correlation tokens tiny and attribute-safe.
-// html/template escapes the value, this is defence in depth.
-func cleanNonce(raw string) string {
-	if len(raw) == 0 || len(raw) > 64 {
-		return ""
+func (c *Client) handleAck(messageIDs []string) {
+	if len(messageIDs) == 0 || len(messageIDs) > maxAckBatch {
+		c.notify("Invalid acknowledgement batch.")
+		return
 	}
-	for _, r := range raw {
-		allowed := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
-			r >= '0' && r <= '9' || r == '-' || r == '_'
-		if !allowed {
-			return ""
+	if !c.limiter.Allow("ack:"+c.UserID, time.Now()) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	results, err := c.store.AckMessages(ctx, c.DeviceID, messageIDs)
+	if err != nil {
+		if c.logger != nil {
+			c.logger.Printf("ack messages: %v", err)
 		}
+		c.notify("Acknowledgement could not be saved.")
+		return
 	}
-	return raw
+	for _, result := range results {
+		c.hub.SendToUserJSON(result.SenderUserID, map[string]any{
+			"type":      "delivery",
+			"messageId": result.MessageID,
+			"state":     "delivered",
+		})
+	}
+}
+
+func (c *Client) handleTyping(event inboundEvent) {
+	if event.State != "start" && event.State != "stop" {
+		return
+	}
+	if event.ConversationID == "" || !c.limiter.Allow("typing:"+c.UserID, time.Now()) {
+		return
+	}
+	// Throttle per conversation to avoid a typing-indicator flood.
+	if last, ok := c.typing[event.ConversationID]; ok && time.Since(last) < 1500*time.Millisecond {
+		return
+	}
+	c.typing[event.ConversationID] = time.Now()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	member, err := c.store.IsConversationMember(ctx, event.ConversationID, c.UserID)
+	if err != nil || !member {
+		return
+	}
+	peer, found, err := c.store.ConversationPeer(ctx, event.ConversationID, c.UserID)
+	if err != nil || !found {
+		return
+	}
+	c.hub.SendToUserJSON(peer, map[string]any{
+		"type":           "typing",
+		"conversationId": event.ConversationID,
+		"userId":         c.UserID,
+		"state":          event.State,
+	})
+}
+
+func (c *Client) notify(message string) {
+	c.EnqueueJSON(map[string]string{"type": "error", "message": message})
 }
 
 func (c *Client) writePump() {
@@ -190,14 +216,14 @@ func (c *Client) writePump() {
 	defer ticker.Stop()
 	for {
 		select {
-		case html, ok := <-c.send:
+		case payload, ok := <-c.send:
 			if !ok {
 				return
 			}
 			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				return
 			}
-			if err := c.conn.WriteMessage(websocket.TextMessage, html); err != nil {
+			if err := c.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 				return
 			}
 		case <-ticker.C:
@@ -211,4 +237,13 @@ func (c *Client) writePump() {
 			return
 		}
 	}
+}
+
+func presenceEvent(userID string, online bool) []byte {
+	payload, _ := json.Marshal(map[string]any{
+		"type":   "presence",
+		"userId": userID,
+		"online": online,
+	})
+	return payload
 }

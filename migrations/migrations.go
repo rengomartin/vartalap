@@ -4,27 +4,47 @@ package migrations
 import (
 	"embed"
 	"fmt"
+	"sort"
+	"strings"
 )
 
 //go:embed *.sql
 var files embed.FS
 
-// SQL returns the ordered migration statements.
-func SQL() ([]string, error) {
+// Migration is one versioned SQL file.
+type Migration struct {
+	Version string
+	Name    string
+	SQL     string
+}
+
+// All returns every embedded migration ordered by filename. Filenames must
+// begin with a zero-padded numeric version followed by an underscore.
+func All() ([]Migration, error) {
 	entries, err := files.ReadDir(".")
 	if err != nil {
 		return nil, err
 	}
-	statements := make([]string, 0, len(entries))
+	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
 		}
-		content, err := files.ReadFile(entry.Name())
-		if err != nil {
-			return nil, fmt.Errorf("read migration %s: %w", entry.Name(), err)
-		}
-		statements = append(statements, string(content))
+		names = append(names, entry.Name())
 	}
-	return statements, nil
+	sort.Strings(names)
+
+	migrations := make([]Migration, 0, len(names))
+	for _, name := range names {
+		version, _, ok := strings.Cut(name, "_")
+		if !ok || version == "" {
+			return nil, fmt.Errorf("migration %q must start with a version prefix", name)
+		}
+		content, err := files.ReadFile(name)
+		if err != nil {
+			return nil, fmt.Errorf("read migration %s: %w", name, err)
+		}
+		migrations = append(migrations, Migration{Version: version, Name: name, SQL: string(content)})
+	}
+	return migrations, nil
 }

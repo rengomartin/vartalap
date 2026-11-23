@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 type Config struct {
 	Addr            string
 	DBPath          string
+	DataDir         string
 	Environment     string
 	AllowedOrigins  []string
 	HistoryLimit    int
@@ -21,6 +23,13 @@ type Config struct {
 	RatePerSecond   float64
 	RateBurst       int
 	ShutdownTimeout time.Duration
+
+	// Messaging limits and retention.
+	MaxAttachmentBytes      int64
+	MaxAvatarBytes          int64
+	MessageRetentionDays    int
+	AttachmentRetentionDays int
+	MaxDevicesPerUser       int
 }
 
 // Load reads configuration from environment variables, applying safe defaults.
@@ -28,14 +37,25 @@ func Load() (Config, error) {
 	cfg := Config{
 		Addr:            env("ADDR", ":8080"),
 		DBPath:          env("DB_PATH", "data/vartalap.db"),
+		DataDir:         env("DATA_DIR", "data"),
 		Environment:     env("APP_ENV", "development"),
 		AllowedOrigins:  splitList(os.Getenv("ALLOWED_ORIGINS")),
 		HistoryLimit:    intEnv("HISTORY_LIMIT", 50, 1, 200),
 		MaxMessageRunes: intEnv("MAX_MESSAGE_RUNES", 2000, 1, 10000),
-		MaxMessageBytes: int64(intEnv("MAX_MESSAGE_BYTES", 16384, 1024, 65536)),
+		MaxMessageBytes: int64(intEnv("MAX_MESSAGE_BYTES", 65536, 1024, 262144)),
 		RatePerSecond:   float64(intEnv("RATE_PER_SECOND", 2, 1, 100)),
 		RateBurst:       intEnv("RATE_BURST", 5, 1, 100),
 		ShutdownTimeout: time.Duration(intEnv("SHUTDOWN_TIMEOUT_SECONDS", 10, 1, 120)) * time.Second,
+
+		MaxAttachmentBytes:      int64(intEnv("MAX_ATTACHMENT_BYTES", 10*1024*1024, 1024, 50*1024*1024)),
+		MaxAvatarBytes:          int64(intEnv("MAX_AVATAR_BYTES", 512*1024, 1024, 5*1024*1024)),
+		MessageRetentionDays:    intEnv("MESSAGE_RETENTION_DAYS", 30, 1, 365),
+		AttachmentRetentionDays: intEnv("ATTACHMENT_RETENTION_DAYS", 7, 1, 90),
+		MaxDevicesPerUser:       intEnv("MAX_DEVICES_PER_USER", 1, 1, 10),
+	}
+
+	if cfg.DataDir == "" {
+		cfg.DataDir = filepath.Dir(cfg.DBPath)
 	}
 
 	if cfg.Addr == "" {

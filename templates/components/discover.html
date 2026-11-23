@@ -1,0 +1,31 @@
+{{define "discover-results"}}
+{{if .Query}}
+<p class="discover-caption">Results for “{{.Query}}”</p>
+{{end}}
+{{if .Users}}
+<ul class="discover-list">
+  {{range .Users}}
+  <li class="discover-item">
+    <button class="discover-person" type="button" data-start-chat="{{.Username}}" data-display-name="{{.DisplayName}}" title="Start a private chat with @{{.Username}}">
+      {{if hasAvatar .AvatarUpdatedAt}}
+      <img class="avatar avatar--sm" src="{{avatarURL .ID .AvatarUpdatedAt}}" alt="">
+      {{else}}
+      <span class="avatar avatar--sm" aria-hidden="true">{{initial .DisplayName}}</span>
+      {{end}}
+      <span class="discover-copy">
+        <span class="discover-name">{{.DisplayName}}</span>
+        <span class="discover-handle">@{{.Username}}</span>
+      </span>
+      <span class="discover-action" aria-hidden="true">Chat</span>
+    </button>
+  </li>
+  {{end}}
+</ul>
+{{if .NextCursor}}
+<button class="discover-more" type="button"
+        hx-get="/discover?cursor={{.NextCursor}}" hx-target="#discover-results" hx-swap="innerHTML">Load more people</button>
+{{end}}
+{{else}}
+<p class="sidebar-empty">{{if .Query}}No one matches that search.{{else}}No public profiles yet. Share your profile link to invite someone.{{end}}</p>
+{{end}}
+{{end}}

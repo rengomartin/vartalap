@@ -1,4 +1,4 @@
-.PHONY: build run test tidy
+.PHONY: build run test test-js tidy
 
 build:
 	mkdir -p bin
@@ -9,6 +9,9 @@ run:
 
 test:
 	go test ./... -count=1
+
+test-js:
+	node scripts/test-crypto.mjs
 
 tidy:
 	go mod tidy

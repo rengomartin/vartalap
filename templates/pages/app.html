@@ -1,0 +1,179 @@
+{{define "content"}}
+<div class="messenger" id="messenger"
+     data-user-id="{{.User.ID}}"
+     data-username="{{.User.Username}}"
+     data-display-name="{{.User.DisplayName}}"
+     data-avatar-updated="{{.User.AvatarUpdatedAt}}">
+
+  <aside class="sidebar" aria-label="Conversations and discovery">
+    <header class="sidebar-head">
+      <a class="sidebar-identity" href="/" title="Your profile">
+        <span class="avatar" id="self-avatar" data-name="{{.User.DisplayName}}">{{initial .User.DisplayName}}</span>
+        <span class="sidebar-identity-copy">
+          <span class="sidebar-name" id="self-name">{{.User.DisplayName}}</span>
+          <span class="sidebar-handle" id="self-handle">@{{.User.Username}}</span>
+        </span>
+      </a>
+      <div class="sidebar-head-actions">
+        <button class="icon-button icon-button--dark" id="theme-toggle" type="button" aria-label="Toggle colour theme" title="Toggle colour theme">
+          <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16 2a14 14 0 1 0 14 14A14 14 0 0 0 16 2Zm0 26V4a12 12 0 0 1 0 24Z"/></svg>
+        </button>
+        <button class="icon-button icon-button--dark" id="settings-open" type="button" aria-label="Identity and security settings" title="Identity settings">
+          <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16 10a6 6 0 1 0 6 6 6 6 0 0 0-6-6Zm0 10a4 4 0 1 1 4-4 4 4 0 0 1-4 4Z"/><path d="M29 17v-2l-3.2-.6a10.6 10.6 0 0 0-1-2.4l1.9-2.7-1.4-1.4-2.7 1.9a10.6 10.6 0 0 0-2.4-1L20 5.6h-2l-.6 3.2a10.6 10.6 0 0 0-2.4 1L12.3 7.9 10.9 9.3l1.9 2.7a10.6 10.6 0 0 0-1 2.4L8.6 15v2l3.2.6a10.6 10.6 0 0 0 1 2.4l-1.9 2.7 1.4 1.4 2.7-1.9a10.6 10.6 0 0 0 2.4 1l.6 3.2h2l.6-3.2a10.6 10.6 0 0 0 2.4-1l2.7 1.9 1.4-1.4-1.9-2.7a10.6 10.6 0 0 0 1-2.4Z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="sidebar-search">
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M29 27.6 21.4 20a11 11 0 1 0-1.4 1.4L27.6 29ZM4 13a9 9 0 1 1 9 9 9 9 0 0 1-9-9Z"/></svg>
+      <input class="sidebar-search-input" id="discover-search" type="search" placeholder="Find people by username" autocomplete="off" spellcheck="false"
+             hx-get="/discover/search" hx-trigger="input changed delay:300ms, search" hx-target="#discover-results" hx-swap="innerHTML" aria-label="Search people">
+    </div>
+
+    <div class="sidebar-scroll">
+      <section class="sidebar-section" aria-labelledby="chats-title">
+        <div class="sidebar-section-head">
+          <h2 class="sidebar-section-title" id="chats-title">Chats</h2>
+          <span class="sidebar-count" id="chat-count"></span>
+        </div>
+        <div id="conversation-list" class="conversation-list">
+          <p class="sidebar-empty" id="conversation-empty">No conversations yet. Search for someone to start one.</p>
+        </div>
+      </section>
+
+      <section class="sidebar-section" aria-labelledby="discover-title">
+        <div class="sidebar-section-head">
+          <h2 class="sidebar-section-title" id="discover-title">Discover</h2>
+          <span class="sidebar-note">public directory</span>
+        </div>
+        <div id="discover-results" class="discover-results" hx-get="/discover" hx-trigger="load" hx-swap="innerHTML">
+          <p class="sidebar-empty">Loading people…</p>
+        </div>
+      </section>
+    </div>
+
+    <footer class="sidebar-foot">
+      <span class="sidebar-fingerprint" id="self-fingerprint" title="Your public identity fingerprint">fingerprint ···</span>
+      <span class="status-dot is-offline" id="connection-dot" title="Connection status"></span>
+    </footer>
+  </aside>
+
+  <section class="chat-pane" id="chat-pane" aria-label="Conversation">
+    <div class="chat-empty" id="chat-empty">
+      <img class="empty-mark" src="/static/logo-mark.svg" alt="">
+      <h2 class="empty-title">Pick a conversation</h2>
+      <p class="empty-copy">Choose someone from your chats or the directory. Messages are encrypted on this device before they are sent.</p>
+      <p class="empty-crypto">End-to-end encrypted · sealed envelope · P-256 + AES-256-GCM</p>
+    </div>
+
+    <div class="chat-view hidden" id="chat-view">
+      <header class="chat-header" id="chat-header">
+        <button class="icon-button icon-button--light chat-back" id="chat-back" type="button" aria-label="Back to conversations">
+          <svg width="18" height="18" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M14 6l-1.4 1.4L21.2 16H4v2h17.2l-8.6 8.6L14 28l11-11z" transform="rotate(180 16 16)"/></svg>
+        </button>
+        <a class="chat-peer" id="chat-peer" href="#" target="_blank" rel="noopener">
+          <span class="avatar avatar--sm" id="chat-peer-avatar"></span>
+          <span class="chat-peer-copy">
+            <span class="chat-peer-name" id="chat-peer-name"></span>
+            <span class="chat-peer-handle" id="chat-peer-handle"></span>
+          </span>
+        </a>
+        <span class="chat-presence" id="chat-presence"></span>
+        <button class="icon-button icon-button--light" id="chat-verify" type="button" title="Verify identity fingerprint" aria-label="Verify identity fingerprint">
+          <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16 2 4 6v10c0 7.4 5.1 12.7 12 14 6.9-1.3 12-6.6 12-14V6Zm0 24c-5.6-1.2-10-5.7-10-12V7.6l10-3.3 10 3.3V14c0 6.3-4.4 10.8-10 12Zm-1.4-7.6-3-3L10.2 17l4.4 4.4 7.2-7.2-1.4-1.4Z"/></svg>
+        </button>
+      </header>
+
+      <div class="chat-scroll">
+        <div id="message-list" class="message-list" role="log" aria-live="polite" aria-relevant="additions"></div>
+        <div class="typing-indicator" id="typing-indicator" aria-live="polite"></div>
+      </div>
+
+      <div class="composer-wrap">
+        <div class="reply-preview hidden" id="reply-preview">
+          <div class="reply-preview-copy">
+            <span class="reply-preview-label">Replying to</span>
+            <span class="reply-preview-text" id="reply-preview-text"></span>
+          </div>
+          <button class="icon-button icon-button--light" id="reply-cancel" type="button" aria-label="Cancel reply">✕</button>
+        </div>
+        <div class="attachment-preview hidden" id="attachment-preview">
+          <span class="attachment-preview-name" id="attachment-preview-name"></span>
+          <span class="attachment-preview-size" id="attachment-preview-size"></span>
+          <button class="icon-button icon-button--light" id="attachment-cancel" type="button" aria-label="Remove attachment">✕</button>
+        </div>
+        <form class="composer" id="composer" novalidate>
+          <label class="visually-hidden" for="message-input">Message</label>
+          <div class="composer-field">
+            <button class="composer-icon" id="attach-button" type="button" title="Attach an encrypted file" aria-label="Attach an encrypted file">
+              <svg width="20" height="20" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M20.6 10.4 12 19a2.1 2.1 0 0 0 3 3l8.6-8.6a4.2 4.2 0 0 0-6-6L8 16a6.3 6.3 0 0 0 9 9l7.6-7.6-1.4-1.4L15.6 24a4.3 4.3 0 0 1-6-6l9.6-9.6a2.2 2.2 0 0 1 3.1 3.1Z"/></svg>
+            </button>
+            <input class="visually-hidden" id="attachment-input" type="file">
+            <textarea class="message-input" id="message-input" rows="1" maxlength="4000" placeholder="Write an encrypted message…" autocomplete="off"></textarea>
+            <button class="send-button" id="send-button" type="submit" aria-label="Send message">
+              <svg class="send-icon" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M27.7 4.3a1 1 0 0 0-1-.2L4.5 12.4a1 1 0 0 0 .1 1.9l8.7 2.4 2.4 8.7a1 1 0 0 0 1.9.1L25.9 5.3a1 1 0 0 0-.2-1ZM15 15.6l-6.7-1.8L22 6.4Zm1.4 1.4L23.6 8.8l-7.4 13.7Z"/></svg>
+            </button>
+          </div>
+          <div class="composer-meta">
+            <span class="composer-hint" id="composer-hint">Encrypted in this browser · Enter to send, Shift+Enter for a new line</span>
+            <span class="char-count" id="char-count">0 / 4000</span>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+</div>
+
+<dialog class="app-dialog" id="settings-dialog" aria-labelledby="settings-title">
+  <div class="dialog-card">
+    <div class="dialog-header">
+      <div>
+        <p class="dialog-eyebrow">IDENTITY &amp; SECURITY</p>
+        <h2 class="dialog-title" id="settings-title">Your identity</h2>
+      </div>
+      <button class="dialog-close" id="settings-close" type="button" aria-label="Close settings">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="device-state">
+        <span class="device-state-icon" aria-hidden="true">✓</span>
+        <div>
+          <p class="device-state-title">Keys live on this device</p>
+          <p class="device-state-copy">Private keys are stored non-exportably in IndexedDB. The server only holds your public keys.</p>
+        </div>
+      </div>
+      <dl class="device-details">
+        <div><dt>Username</dt><dd id="settings-username"></dd></div>
+        <div><dt>Device</dt><dd id="settings-device"></dd></div>
+        <div><dt>Fingerprint</dt><dd class="device-key" id="settings-fingerprint"></dd></div>
+        <div><dt>Recovery</dt><dd id="settings-recovery">Phrase saved by you</dd></div>
+      </dl>
+      <p class="dialog-copy settings-note">Your recovery phrase is never stored on the server and cannot be shown again. If you lose it, you cannot restore this identity on another device. Messages already delivered exist only on devices.</p>
+      <div class="dialog-actions dialog-actions--split">
+        <button class="cds--btn cds--btn--danger--tertiary" id="forget-device" type="button">Forget this device</button>
+        <a class="cds--btn cds--btn--tertiary" id="settings-profile-link" href="/">View public profile</a>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="app-dialog" id="verify-dialog" aria-labelledby="verify-title">
+  <div class="dialog-card">
+    <div class="dialog-header">
+      <div>
+        <p class="dialog-eyebrow">SAFETY NUMBER</p>
+        <h2 class="dialog-title" id="verify-title">Verify this contact</h2>
+      </div>
+      <button class="dialog-close" id="verify-close" type="button" aria-label="Close verification">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p class="dialog-copy">Compare this fingerprint with your contact over another channel. If it matches, you are talking to the same device that owns these keys. If it changed, the identity may have been recreated.</p>
+      <p class="verify-fingerprint" id="verify-fingerprint"></p>
+      <p class="verify-changed hidden" id="verify-changed">This fingerprint differs from the one saved earlier for this contact. Ask them about it before sharing anything sensitive.</p>
+      <div class="dialog-actions dialog-actions--split">
+        <button class="cds--btn cds--btn--tertiary" id="verify-done" type="button">Close</button>
+        <button class="cds--btn cds--btn--primary" id="verify-confirm" type="button">Mark as verified</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+{{end}}

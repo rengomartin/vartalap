@@ -1,7 +1,8 @@
 # Third-party notices
 
 Vartalap vendors the following assets so the binary has no runtime CDN
-dependency.
+dependency. All application cryptography uses the browser's built-in WebCrypto
+API; no third-party cryptography library is bundled or required.
 
 ## IBM Carbon Design System
 
@@ -17,8 +18,21 @@ dependency.
 - License: SIL Open Font License 1.1
 - Copyright: IBM Corp.
 
-## HTMX and the HTMX WebSocket extension
+## HTMX
 
-- Files: `static/js/htmx.min.js`, `static/js/ws.min.js`
+- Files: `static/js/htmx.min.js`
 - Source: <https://github.com/bigskysoftware/htmx>
 - License: BSD 2-Clause
+
+## BIP-39 English wordlist
+
+- Files: `static/js/bip39-wordlist.js`
+- Source: <https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt>
+- License: BSD 2-Clause (BIPs repository); the wordlist is widely treated as
+  public-domain reference data.
+
+## Go modules
+
+- `github.com/go-chi/chi/v5` — MIT
+- `github.com/gorilla/websocket` — BSD 3-Clause
+- `github.com/mattn/go-sqlite3` — MIT

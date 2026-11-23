@@ -1,0 +1,115 @@
+{{define "content"}}
+<div class="onboarding">
+  <header class="onboarding-head">
+    <a class="brand-link" href="/" aria-label="Vartalap home">
+      <img class="brand-mark" src="/static/logo-mark.svg" alt="">
+      <span class="brand-copy">
+        <span class="brand-title">Vartalap</span>
+        <span class="brand-subtitle">PRIVATE MESSENGER</span>
+      </span>
+    </a>
+    <button class="icon-button onboarding-theme" id="theme-toggle" type="button" aria-label="Toggle colour theme" title="Toggle colour theme">
+      <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16 2a14 14 0 1 0 14 14A14 14 0 0 0 16 2Zm0 26V4a12 12 0 0 1 0 24Z"/></svg>
+    </button>
+  </header>
+
+  <section class="onboarding-panel" aria-labelledby="onboarding-title">
+    <p class="welcome-eyebrow">ANONYMOUS · END-TO-END ENCRYPTED</p>
+    <h1 class="welcome-title" id="onboarding-title">A quiet place<br>to talk privately.</h1>
+    <p class="welcome-copy">
+      Pick a username and a display name. Your encryption keys are generated in this browser;
+      the server only ever stores public keys and ciphertext. No email, no phone number, no password.
+    </p>
+
+    <div class="onboarding-tabs" role="tablist" aria-label="Identity options">
+      <button class="onboarding-tab is-active" id="tab-create" type="button" role="tab" aria-selected="true" aria-controls="pane-create">Create identity</button>
+      <button class="onboarding-tab" id="tab-restore" type="button" role="tab" aria-selected="false" aria-controls="pane-restore">Restore with phrase</button>
+    </div>
+
+    <div id="pane-create" class="onboarding-pane" role="tabpanel" aria-labelledby="tab-create">
+      <form id="create-form" class="onboarding-form" novalidate>
+        <div class="field">
+          <label class="cds--label" for="create-username">Username</label>
+          <input class="cds--text-input" id="create-username" name="username" autocomplete="username" spellcheck="false" maxlength="24" pattern="[a-z0-9_]+" placeholder="e.g. neel_22" required>
+          <p class="field-help">3–24 lowercase letters, numbers or underscores. This is your shareable link: <span class="mono">/u/username</span></p>
+        </div>
+        <div class="field">
+          <label class="cds--label" for="create-display-name">Display name</label>
+          <input class="cds--text-input" id="create-display-name" name="displayName" autocomplete="nickname" maxlength="48" placeholder="How others see you" required>
+        </div>
+        <div class="field">
+          <label class="cds--label" for="create-device-name">Device name <span class="optional">optional</span></label>
+          <input class="cds--text-input" id="create-device-name" name="deviceName" maxlength="40" placeholder="e.g. Home laptop">
+        </div>
+        <div class="field">
+          <label class="cds--label" for="create-avatar">Avatar <span class="optional">optional</span></label>
+          <input class="cds--text-input file-input" id="create-avatar" name="avatar" type="file" accept="image/png,image/jpeg,image/webp">
+          <p class="field-help">PNG, JPEG or WebP, up to 512 KiB. Avatars are public, unlike messages.</p>
+        </div>
+        <button class="cds--btn cds--btn--primary onboarding-submit" id="create-submit" type="submit">
+          <span>Create my identity</span>
+          <svg class="btn-icon" width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M18 6l-1.4 1.4L25.2 16H4v2h21.2l-8.6 8.6L18 28l11-11z"/></svg>
+        </button>
+        <p class="form-status" id="create-status" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+
+    <div id="pane-restore" class="onboarding-pane hidden" role="tabpanel" aria-labelledby="tab-restore">
+      <form id="restore-form" class="onboarding-form" novalidate>
+        <div class="field">
+          <label class="cds--label" for="restore-username">Username</label>
+          <input class="cds--text-input" id="restore-username" name="username" autocomplete="username" spellcheck="false" maxlength="24" placeholder="your username" required>
+        </div>
+        <div class="field">
+          <label class="cds--label" for="restore-phrase">Recovery phrase</label>
+          <textarea class="cds--text-area" id="restore-phrase" name="phrase" rows="3" autocomplete="off" spellcheck="false" placeholder="twelve lowercase words separated by spaces" required></textarea>
+          <p class="field-help">The phrase never leaves this browser. It unlocks your encrypted identity backup.</p>
+        </div>
+        <div class="field">
+          <label class="cds--label" for="restore-device-name">Device name <span class="optional">optional</span></label>
+          <input class="cds--text-input" id="restore-device-name" name="deviceName" maxlength="40" placeholder="e.g. New laptop">
+        </div>
+        <button class="cds--btn cds--btn--primary onboarding-submit" id="restore-submit" type="submit">
+          <span>Restore identity</span>
+          <svg class="btn-icon" width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M18 6l-1.4 1.4L25.2 16H4v2h21.2l-8.6 8.6L18 28l11-11z"/></svg>
+        </button>
+        <p class="form-status" id="restore-status" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+
+    <ul class="welcome-points">
+      <li class="welcome-point"><span class="point-icon">01</span><span><strong>Your keys stay here.</strong> Messages are encrypted with Web Crypto before they leave this device.</span></li>
+      <li class="welcome-point"><span class="point-icon">02</span><span><strong>Save your recovery phrase.</strong> It is the only way to restore this identity on another device.</span></li>
+      <li class="welcome-point"><span class="point-icon">03</span><span><strong>No public room.</strong> Every conversation is a private one-to-one thread.</span></li>
+    </ul>
+  </section>
+
+  <footer class="welcome-footer"><span class="footer-mark"></span> Vartalap · anonymous by design · keys stay on your device</footer>
+</div>
+
+<dialog class="app-dialog" id="phrase-dialog" aria-labelledby="phrase-dialog-title">
+  <div class="dialog-card">
+    <div class="dialog-header">
+      <div>
+        <p class="dialog-eyebrow">SAVE THIS NOW</p>
+        <h2 class="dialog-title" id="phrase-dialog-title">Your recovery phrase</h2>
+      </div>
+    </div>
+    <div class="dialog-body">
+      <p class="dialog-copy">Write these twelve words down and keep them offline. Anyone with this phrase can restore your identity. Vartalap cannot recover it for you.</p>
+      <ol class="phrase-grid" id="phrase-grid" aria-label="Recovery phrase words"></ol>
+      <div class="phrase-actions">
+        <button class="cds--btn cds--btn--tertiary" id="phrase-copy" type="button">Copy phrase</button>
+        <button class="cds--btn cds--btn--tertiary" id="phrase-download" type="button">Download backup file</button>
+      </div>
+      <label class="phrase-confirm">
+        <input type="checkbox" id="phrase-saved">
+        <span>I have saved my recovery phrase somewhere safe.</span>
+      </label>
+      <div class="dialog-actions">
+        <button class="cds--btn cds--btn--primary" id="phrase-continue" type="button" disabled>Continue to messages</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+{{end}}

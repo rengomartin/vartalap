@@ -1,98 +1,205 @@
-// Package websocket implements the in-memory connection registry and broadcaster.
+// Package websocket implements the authenticated real-time hub. It routes
+// opaque ciphertext envelopes, presence and typing indicators. It never sees
+// plaintext.
 package websocket
 
 import (
+	"context"
+	"encoding/json"
 	"sync"
+	"time"
 
-	"vartalap/internal/models"
+	"vartalap/internal/repository"
 )
 
-// Renderer converts domain events into HTML fragments for a viewer.
-type Renderer interface {
-	RenderMessage(message models.Message, viewerID string) ([]byte, error)
-	RenderPresence(count int) ([]byte, error)
-	RenderNotice(level, text string) ([]byte, error)
+// PresenceDirectory supplies the conversation partners that should receive
+// presence changes. Keeping it an interface avoids coupling the hub to SQL.
+type PresenceDirectory interface {
+	ConversationPartnerIDs(ctx context.Context, userID string) ([]string, error)
 }
 
-// Hub fans messages out to connected clients and tracks presence.
+// Hub tracks connected devices and routes events between users.
 type Hub struct {
-	mu       sync.Mutex
-	clients  map[*Client]struct{}
-	devices  map[string]int
-	renderer Renderer
-
-	register   chan *Client
-	unregister chan *Client
-	messages   chan models.Message
-	done       chan struct{}
-	closeOnce  sync.Once
+	mu        sync.Mutex
+	clients   map[*Client]struct{}
+	users     map[string]map[*Client]struct{}
+	dir       PresenceDirectory
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
-// NewHub creates a hub. Call Run in a goroutine before registering clients.
-func NewHub(renderer Renderer) *Hub {
+// NewHub creates a hub. Call Run is not required; registration is synchronous.
+func NewHub(dir PresenceDirectory) *Hub {
 	return &Hub{
-		clients:    make(map[*Client]struct{}),
-		devices:    make(map[string]int),
-		renderer:   renderer,
-		register:   make(chan *Client, 128),
-		unregister: make(chan *Client, 128),
-		messages:   make(chan models.Message, 256),
-		done:       make(chan struct{}),
+		clients: make(map[*Client]struct{}),
+		users:   make(map[string]map[*Client]struct{}),
+		dir:     dir,
+		done:    make(chan struct{}),
 	}
 }
 
-// Run processes registrations, disconnections and broadcasts serially.
-func (h *Hub) Run() {
-	for {
-		select {
-		case client := <-h.register:
-			h.add(client)
-		case client := <-h.unregister:
-			h.remove(client)
-		case message := <-h.messages:
-			h.broadcast(message)
-		case <-h.done:
-			return
+// Register adds a client and emits presence transitions.
+func (h *Hub) Register(client *Client) {
+	select {
+	case <-h.done:
+		client.close()
+		return
+	default:
+	}
+
+	var partners []string
+	if h.dir != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		partners, _ = h.dir.ConversationPartnerIDs(ctx, client.UserID)
+		cancel()
+	}
+
+	h.mu.Lock()
+	if _, exists := h.clients[client]; exists {
+		h.mu.Unlock()
+		return
+	}
+	firstConnection := len(h.users[client.UserID]) == 0
+	h.clients[client] = struct{}{}
+	if h.users[client.UserID] == nil {
+		h.users[client.UserID] = make(map[*Client]struct{})
+	}
+	h.users[client.UserID][client] = struct{}{}
+
+	// Send the new client the current presence of its partners.
+	for _, partner := range partners {
+		if h.isOnlineLocked(partner) {
+			client.enqueue(presenceEvent(partner, true))
+		}
+	}
+	// Tell partners this user is online, but only on the first connection.
+	if firstConnection {
+		for _, partner := range partners {
+			h.sendToUserLocked(partner, presenceEvent(client.UserID, true))
+		}
+	}
+	h.mu.Unlock()
+}
+
+// Unregister removes a client and emits an offline event when the user's last
+// connection closes.
+func (h *Hub) Unregister(client *Client) {
+	select {
+	case <-h.done:
+		client.close()
+		return
+	default:
+	}
+
+	var partners []string
+	if h.dir != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		partners, _ = h.dir.ConversationPartnerIDs(ctx, client.UserID)
+		cancel()
+	}
+
+	h.mu.Lock()
+	h.removeLocked(client, partners)
+	h.mu.Unlock()
+}
+
+func (h *Hub) removeLocked(client *Client, partners []string) {
+	if _, exists := h.clients[client]; !exists {
+		return
+	}
+	delete(h.clients, client)
+	client.close()
+	remaining := h.users[client.UserID]
+	delete(remaining, client)
+	if len(remaining) == 0 {
+		delete(h.users, client.UserID)
+		for _, partner := range partners {
+			h.sendToUserLocked(partner, presenceEvent(client.UserID, false))
 		}
 	}
 }
 
-// Register adds a client to the hub.
-func (h *Hub) Register(client *Client) {
-	select {
-	case h.register <- client:
-	case <-h.done:
+// SendToUser enqueues a pre-marshalled event for every connection of a user.
+func (h *Hub) SendToUser(userID string, payload []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.sendToUserLocked(userID, payload)
+}
+
+// SendToUserJSON marshals and sends an event.
+func (h *Hub) SendToUserJSON(userID string, event any) {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	h.SendToUser(userID, payload)
+}
+
+// SendToDevice sends an event only to connections of a specific device.
+func (h *Hub) SendToDevice(deviceID string, event any) {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for client := range h.clients {
+		if client.DeviceID == deviceID {
+			client.enqueue(payload)
+		}
 	}
 }
 
-// Unregister removes a client from the hub.
-func (h *Hub) Unregister(client *Client) {
-	select {
-	case h.unregister <- client:
-	case <-h.done:
-	}
+// IsOnline reports whether a user has at least one open socket.
+func (h *Hub) IsOnline(userID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.isOnlineLocked(userID)
 }
 
-// Broadcast queues a message for all connected clients.
-func (h *Hub) Broadcast(message models.Message) {
-	select {
-	case h.messages <- message:
-	case <-h.done:
-	}
+func (h *Hub) isOnlineLocked(userID string) bool {
+	return len(h.users[userID]) > 0
 }
 
-// Online returns the number of distinct devices with at least one connection.
+// OnlinePartners returns which of a user's conversation partners are online.
+func (h *Hub) OnlinePartners(ctx context.Context, userID string) []string {
+	if h.dir == nil {
+		return nil
+	}
+	partners, err := h.dir.ConversationPartnerIDs(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	online := make([]string, 0, len(partners))
+	for _, partner := range partners {
+		if h.isOnlineLocked(partner) {
+			online = append(online, partner)
+		}
+	}
+	return online
+}
+
+// Online returns the number of distinct connected users.
 func (h *Hub) Online() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return len(h.devices)
+	return len(h.users)
 }
 
-// Connections returns the total number of open sockets (used by tests and diagnostics).
+// Connections returns the total number of open sockets.
 func (h *Hub) Connections() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return len(h.clients)
+}
+
+// UserConnections returns the number of open sockets for one user.
+func (h *Hub) UserConnections(userID string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.users[userID])
 }
 
 // Close stops the hub and closes every client connection.
@@ -104,74 +211,20 @@ func (h *Hub) Close() {
 			client.close()
 		}
 		h.clients = make(map[*Client]struct{})
-		h.devices = make(map[string]int)
+		h.users = make(map[string]map[*Client]struct{})
 		h.mu.Unlock()
 	})
 }
 
-func (h *Hub) add(client *Client) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, exists := h.clients[client]; exists {
-		return
-	}
-	h.clients[client] = struct{}{}
-	h.devices[client.deviceID]++
-	h.sendPresenceLocked(len(h.devices))
-}
-
-func (h *Hub) remove(client *Client) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.removeLocked(client)
-}
-
-func (h *Hub) removeLocked(client *Client) {
-	if _, exists := h.clients[client]; !exists {
-		return
-	}
-	delete(h.clients, client)
-	client.close()
-	if h.devices[client.deviceID] > 0 {
-		h.devices[client.deviceID]--
-		if h.devices[client.deviceID] == 0 {
-			delete(h.devices, client.deviceID)
-		}
-	}
-	h.sendPresenceLocked(len(h.devices))
-}
-
-func (h *Hub) broadcast(message models.Message) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var slow []*Client
-	for client := range h.clients {
-		html, err := h.renderer.RenderMessage(message, client.deviceID)
-		if err != nil {
-			continue
-		}
-		select {
-		case client.send <- html:
-		default:
-			// A slow client must never block delivery to everyone else.
-			slow = append(slow, client)
-		}
-	}
-	for _, client := range slow {
-		h.removeLocked(client)
+func (h *Hub) sendToUserLocked(userID string, payload []byte) {
+	for client := range h.users[userID] {
+		client.enqueue(payload)
 	}
 }
 
-func (h *Hub) sendPresenceLocked(count int) {
-	html, err := h.renderer.RenderPresence(count)
-	if err != nil {
-		return
-	}
-	for client := range h.clients {
-		select {
-		case client.send <- html:
-		default:
-			client.close()
-		}
-	}
+// AckStore is the persistence surface used by the WebSocket client.
+type AckStore interface {
+	IsConversationMember(ctx context.Context, conversationID, userID string) (bool, error)
+	ConversationPeer(ctx context.Context, conversationID, userID string) (string, bool, error)
+	AckMessages(ctx context.Context, deviceID string, messageIDs []string) ([]repository.AckResult, error)
 }

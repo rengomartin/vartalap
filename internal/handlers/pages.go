@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"bytes"
-	"context"
+	"errors"
+	"io"
 	"net/http"
+	"os"
 	"strings"
-	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	appmiddleware "vartalap/internal/middleware"
 	"vartalap/internal/models"
@@ -14,173 +17,102 @@ import (
 
 func (h *handler) page(w http.ResponseWriter, r *http.Request) {
 	deviceID := appmiddleware.DeviceID(r.Context())
-	user, found, err := h.store.GetUser(r.Context(), deviceID)
+	user, _, found, err := h.store.GetUserByDeviceID(r.Context(), deviceID)
 	if err != nil {
 		h.serverError(w, err)
 		return
 	}
 	if !found {
-		h.renderWelcome(w, "")
+		h.renderPage(w, http.StatusOK, "onboarding", models.PageData{
+			Title: "Welcome",
+			View:  "onboarding",
+			CSRF:  appmiddleware.CSRFToken(r.Context()),
+		})
 		return
 	}
-	data, err := h.chatData(r.Context(), deviceID, user.DisplayName)
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
-	h.renderChat(w, data)
+	h.renderPage(w, http.StatusOK, "app", models.PageData{
+		Title: "Chats",
+		View:  "app",
+		CSRF:  appmiddleware.CSRFToken(r.Context()),
+		User:  &user,
+	})
 }
 
-func (h *handler) join(w http.ResponseWriter, r *http.Request) {
-	deviceID := appmiddleware.DeviceID(r.Context())
-	r.Body = http.MaxBytesReader(w, r.Body, 8192)
-	if err := r.ParseForm(); err != nil {
-		h.renderWelcome(w, "That request was too large.")
-		return
-	}
-	if !h.forms.Allow("join:"+deviceID, time.Now()) {
-		h.renderWelcome(w, "Too many attempts. Please wait a moment.")
-		return
-	}
-	name, err := services.ValidateDisplayName(r.PostFormValue("display_name"))
-	if err != nil {
-		h.renderWelcome(w, err.Error())
-		return
-	}
-	user, err := h.store.UpsertUser(r.Context(), deviceID, name)
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
-	data, err := h.chatData(r.Context(), deviceID, user.DisplayName)
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
-	h.renderChat(w, data)
-}
-
-func (h *handler) updateName(w http.ResponseWriter, r *http.Request) {
-	deviceID := appmiddleware.DeviceID(r.Context())
-	r.Body = http.MaxBytesReader(w, r.Body, 8192)
-	if err := r.ParseForm(); err != nil {
-		h.writeNotice(w, "error", "That request was too large.")
-		return
-	}
-	if !h.forms.Allow("name:"+deviceID, time.Now()) {
-		h.writeNotice(w, "error", "Too many attempts. Please wait a moment.")
-		return
-	}
-	name, err := services.ValidateDisplayName(r.PostFormValue("display_name"))
-	if err != nil {
-		h.writeNotice(w, "error", err.Error())
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	user, err := h.store.UpsertUser(ctx, deviceID, name)
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
-	nameHTML, err := h.renderer.RenderName(user.DisplayName)
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
-	noticeHTML, err := h.renderer.RenderNotice("info", "Display name updated.")
-	if err != nil {
-		h.serverError(w, err)
-		return
-	}
-	writeHTML(w, http.StatusOK, append(nameHTML, noticeHTML...))
-}
-
-// restore re-establishes an identity from a signed token kept in localStorage
-// or the sync cookie. This is the fallback path when a browser drops cookies
-// between visits: the page still knows who the device is, so the user is not
-// asked for a name again.
-func (h *handler) restore(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	if err := r.ParseForm(); err != nil {
-		h.renderWelcome(w, "That saved session could not be read.")
-		return
-	}
-	token := strings.TrimSpace(r.PostFormValue("token"))
-	if token == "" {
-		h.renderWelcome(w, "No saved session was found on this device.")
-		return
-	}
-	deviceID, ok := h.signer.Verify(token)
-	if !ok {
-		h.renderWelcome(w, "That saved session is no longer valid. Choose a name to start again.")
-		return
-	}
-	_, found, err := h.store.GetUser(r.Context(), deviceID)
+func (h *handler) publicProfile(w http.ResponseWriter, r *http.Request) {
+	username := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "username")))
+	user, found, err := h.store.GetUserByUsername(r.Context(), username)
 	if err != nil {
 		h.serverError(w, err)
 		return
 	}
 	if !found {
-		h.renderWelcome(w, "No chat profile was found for this device. Choose a name to start.")
+		h.renderPage(w, http.StatusNotFound, "notfound", models.PageData{
+			Title: "Profile not found",
+			View:  "notfound",
+			CSRF:  appmiddleware.CSRFToken(r.Context()),
+		})
 		return
 	}
-	appmiddleware.SetIdentityCookies(w, r, token)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	summary := user.Summary()
+	isSelf := false
+	if deviceID := appmiddleware.DeviceID(r.Context()); services.IsValidDeviceID(deviceID) {
+		if viewer, _, found, err := h.store.GetUserByDeviceID(r.Context(), deviceID); err == nil && found {
+			isSelf = viewer.ID == user.ID
+		}
+	}
+	h.renderPage(w, http.StatusOK, "profile", models.PageData{
+		Title:   user.DisplayName + " (@" + user.Username + ")",
+		View:    "profile",
+		CSRF:    appmiddleware.CSRFToken(r.Context()),
+		Profile: &summary,
+		IsSelf:  isSelf,
+	})
 }
 
-// forget removes the remembered identity from this browser. The device ID
-// itself is not reused, so a forgotten device starts with a clean identity.
-func (h *handler) forget(w http.ResponseWriter, r *http.Request) {
-	appmiddleware.ClearIdentityCookies(w, r)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func (h *handler) chatData(ctx context.Context, deviceID, displayName string) (models.PageData, error) {
-	fetched, err := h.store.LatestMessages(ctx, h.cfg.HistoryLimit+1)
+func (h *handler) avatar(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "userID")
+	if !services.IsValidUUID(userID) {
+		http.NotFound(w, r)
+		return
+	}
+	user, found, err := h.store.GetUserByID(r.Context(), userID)
 	if err != nil {
-		return models.PageData{}, err
-	}
-	data := models.PageData{
-		Title:       "Public chat",
-		DisplayName: displayName,
-		DeviceKey:   services.SenderKey(deviceID),
-		Online:      h.hub.Online(),
-		ViewerID:    deviceID,
-		MaxRunes:    h.cfg.MaxMessageRunes,
-	}
-	if len(fetched) > h.cfg.HistoryLimit {
-		data.HasMore = true
-		fetched = fetched[1:]
-	}
-	models.MarkViewer(fetched, deviceID)
-	data.Messages = fetched
-	if len(fetched) > 0 {
-		data.OldestID = fetched[0].ID
-	}
-	return data, nil
-}
-
-func (h *handler) renderChat(w http.ResponseWriter, data models.PageData) {
-	var buffer bytes.Buffer
-	if err := h.renderer.Page(&buffer, "chat", data); err != nil {
 		h.serverError(w, err)
 		return
 	}
-	writeHTML(w, http.StatusOK, buffer.Bytes())
-}
-
-func (h *handler) renderWelcome(w http.ResponseWriter, notice string) {
-	var buffer bytes.Buffer
-	if err := h.renderer.Page(&buffer, "welcome", models.PageData{Title: "Join", Notice: notice}); err != nil {
+	if !found || user.AvatarUpdatedAt == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	file, contentType, err := h.files.OpenAvatar(userID)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
 		h.serverError(w, err)
 		return
 	}
-	writeHTML(w, http.StatusOK, buffer.Bytes())
+	defer file.Close()
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, file)
 }
 
-func (h *handler) writeNotice(w http.ResponseWriter, level, text string) {
-	fragment, err := h.renderer.RenderNotice(level, text)
+func (h *handler) discoverPartial(w http.ResponseWriter, r *http.Request) {
+	user, _ := currentUser(r)
+	if !h.allow("discovery", user.ID) {
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
+	}
+	page, err := h.directoryPage(r, user.ID, r.URL.Query().Get("cursor"))
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	fragment, err := h.renderer.Fragment("discover-results", page)
 	if err != nil {
 		h.serverError(w, err)
 		return
@@ -188,9 +120,57 @@ func (h *handler) writeNotice(w http.ResponseWriter, level, text string) {
 	writeHTML(w, http.StatusOK, fragment)
 }
 
-func (h *handler) serverError(w http.ResponseWriter, err error) {
-	if h.logger != nil {
-		h.logger.Printf("handler error: %v", err)
+func (h *handler) discoverSearchPartial(w http.ResponseWriter, r *http.Request) {
+	user, _ := currentUser(r)
+	if !h.allow("search", user.ID) {
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
 	}
-	http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	page := models.DirectoryPage{Query: query}
+	if query != "" {
+		if len(query) > 32 {
+			query = query[:32]
+		}
+		users, err := h.store.SearchUsers(r.Context(), user.ID, query, 20)
+		if err != nil {
+			h.serverError(w, err)
+			return
+		}
+		page.Users = users
+	} else {
+		directory, err := h.directoryPage(r, user.ID, "")
+		if err != nil {
+			h.serverError(w, err)
+			return
+		}
+		page = directory
+	}
+	fragment, err := h.renderer.Fragment("discover-results", page)
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	writeHTML(w, http.StatusOK, fragment)
+}
+
+func (h *handler) directoryPage(r *http.Request, viewerID, cursor string) (models.DirectoryPage, error) {
+	users, err := h.store.ListDiscoverable(r.Context(), viewerID, cursor, 24)
+	if err != nil {
+		return models.DirectoryPage{}, err
+	}
+	page := models.DirectoryPage{Users: users}
+	if len(users) == 24 {
+		page.NextCursor = users[len(users)-1].Username
+	}
+	return page, nil
+}
+
+func (h *handler) renderPage(w http.ResponseWriter, status int, name string, data models.PageData) {
+	var buffer bytes.Buffer
+	if err := h.renderer.Page(&buffer, name, data); err != nil {
+		h.serverError(w, err)
+		return
+	}
+	writeHTML(w, status, buffer.Bytes())
 }

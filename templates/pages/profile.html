@@ -1,0 +1,43 @@
+{{define "content"}}
+<div class="profile-page">
+  <header class="profile-topbar">
+    <a class="brand-link brand-link--dark" href="/" aria-label="Vartalap home">
+      <img class="brand-mark" src="/static/logo-mark.svg" alt="">
+      <span class="brand-copy"><span class="brand-title">Vartalap</span><span class="brand-subtitle">PRIVATE MESSENGER</span></span>
+    </a>
+    <button class="icon-button" id="theme-toggle" type="button" aria-label="Toggle colour theme" title="Toggle colour theme">
+      <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16 2a14 14 0 1 0 14 14A14 14 0 0 0 16 2Zm0 26V4a12 12 0 0 1 0 24Z"/></svg>
+    </button>
+  </header>
+
+  <section class="profile-card" aria-labelledby="profile-name">
+    <div class="profile-banner" aria-hidden="true"></div>
+    <div class="profile-body">
+      {{if hasAvatar .Profile.AvatarUpdatedAt}}
+      <img class="profile-avatar profile-avatar--image" src="{{avatarURL .Profile.ID .Profile.AvatarUpdatedAt}}" alt="">
+      {{else}}
+      <span class="profile-avatar" aria-hidden="true">{{initial .Profile.DisplayName}}</span>
+      {{end}}
+      <p class="profile-eyebrow">PUBLIC PROFILE{{if .IsSelf}} · YOU{{end}}</p>
+      <h1 class="profile-name" id="profile-name">{{.Profile.DisplayName}}</h1>
+      <p class="profile-handle">@{{.Profile.Username}}</p>
+      {{if .Profile.Discoverable}}
+      <p class="profile-copy">This person is listed in the Vartalap directory. Conversations are private and end-to-end encrypted.</p>
+      {{else}}
+      <p class="profile-copy">This person is not listed in the public directory. You can still start a private conversation if you know their username.</p>
+      {{end}}
+      <div class="profile-actions">
+        {{if .IsSelf}}
+        <a class="cds--btn cds--btn--primary" href="/">Open my chats</a>
+        {{else}}
+        <a class="cds--btn cds--btn--primary" href="/?chat={{.Profile.Username}}">Start a private chat</a>
+        {{end}}
+        <button class="cds--btn cds--btn--tertiary" id="profile-copy-link" type="button" data-link="/u/{{.Profile.Username}}">Copy profile link</button>
+      </div>
+      <p class="profile-note">No email, phone number or password is attached to this profile. The person behind it controls their own keys.</p>
+    </div>
+  </section>
+
+  <footer class="welcome-footer"><span class="footer-mark"></span> Vartalap · anonymous by design</footer>
+</div>
+{{end}}

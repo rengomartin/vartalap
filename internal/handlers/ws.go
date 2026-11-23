@@ -14,10 +14,12 @@ import (
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
+	WriteBufferSize: 8192,
 	// Origin is validated explicitly against the request host / allow-list first.
 	CheckOrigin: func(*http.Request) bool { return true },
 }
+
+const maxConnectionsPerUser = 5
 
 func (h *handler) websocket(w http.ResponseWriter, r *http.Request) {
 	deviceID := appmiddleware.DeviceID(r.Context())
@@ -25,13 +27,21 @@ func (h *handler) websocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	_, found, err := h.store.GetUser(r.Context(), deviceID)
+	user, device, found, err := h.store.GetUserByDeviceID(r.Context(), deviceID)
 	if err != nil {
 		h.serverError(w, err)
 		return
 	}
 	if !found {
-		http.Error(w, "Choose a display name first", http.StatusForbidden)
+		http.Error(w, "Create an identity first", http.StatusForbidden)
+		return
+	}
+	if !h.allow("ws-connect", user.ID) {
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
+	}
+	if h.hub.UserConnections(user.ID) >= maxConnectionsPerUser {
+		http.Error(w, "Too many open connections", http.StatusTooManyRequests)
 		return
 	}
 
@@ -45,15 +55,36 @@ func (h *handler) websocket(w http.ResponseWriter, r *http.Request) {
 	client := appws.NewClient(appws.ClientConfig{
 		Hub:             h.hub,
 		Conn:            conn,
-		DeviceID:        deviceID,
+		UserID:          user.ID,
+		DeviceID:        device.ID,
 		Store:           h.store,
-		Limiter:         h.limiter,
-		Renderer:        h.renderer,
-		Validate:        func(raw string, max int) (string, error) { return services.ValidateContent(raw, max) },
-		MaxMessageBytes: h.cfg.MaxMessageBytes,
-		MaxMessageRunes: h.cfg.MaxMessageRunes,
+		Limiter:         h.limiters["general"],
+		MaxMessageBytes: 64 * 1024,
 		Logger:          h.logger,
 	})
+
+	onlinePartners := h.hub.OnlinePartners(r.Context(), user.ID)
+	client.EnqueueJSON(map[string]any{
+		"type":          "ready",
+		"userId":        user.ID,
+		"onlineUserIds": onlinePartners,
+	})
+
+	// Deliver anything that accumulated while the device was offline. The
+	// client acknowledges only after decrypting and storing locally.
+	events, err := h.store.ListPendingMessages(r.Context(), device.ID, 200)
+	if err == nil {
+		for _, event := range events {
+			client.EnqueueJSON(map[string]any{
+				"type":     "message",
+				"envelope": event.Envelope,
+				"sender":   event.Sender,
+			})
+			_ = h.store.MarkDelivered(r.Context(), event.Envelope.ID, device.ID)
+		}
+	}
+	_ = h.store.TouchDevice(r.Context(), device.ID)
+
 	client.Start()
 }
 
@@ -75,9 +106,6 @@ func allowedOrigin(r *http.Request, allowed []string) bool {
 	if parsed.Path != "" && parsed.Path != "/" {
 		return false
 	}
-	// Behind a TLS proxy the request can still look like plain http, so scheme
-	// equality is too strict. Same-host origins are safe to accept here; cross-
-	// host origins are still rejected above.
 	host := r.Host
 	if forwarded := r.Header.Get("X-Forwarded-Host"); forwarded != "" {
 		host = strings.TrimSpace(strings.Split(forwarded, ",")[0])

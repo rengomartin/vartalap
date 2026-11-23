@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	// DeviceIDCookieName is the name of the persistent anonymous identity cookie.
+	// DeviceIDCookieName is the name of the persistent anonymous device cookie.
+	// It is a transport/session identifier, NOT the cryptographic identity.
 	DeviceIDCookieName  = "vartalap_id"
-	MaxDisplayNameRunes = 32
+	MaxDisplayNameRunes = 48
 )
 
 // NewDeviceID generates a random UUID v4 for anonymous device identification.
@@ -29,6 +30,11 @@ func NewDeviceID() (string, error) {
 
 // IsValidDeviceID reports whether value is a canonical UUID v4 string.
 func IsValidDeviceID(value string) bool {
+	return IsValidUUID(value)
+}
+
+// IsValidUUID reports whether value is a canonical UUID v4 string.
+func IsValidUUID(value string) bool {
 	_, err := parseDeviceID(value)
 	return err == nil
 }
@@ -68,6 +74,24 @@ func ValidateDisplayName(raw string) (string, error) {
 	for _, r := range runes {
 		if unicode.IsControl(r) || r == '\u200b' || r == '\u200e' || r == '\u200f' {
 			return "", fmt.Errorf("display name contains invalid characters")
+		}
+	}
+	return name, nil
+}
+
+// ValidateDeviceName normalises an optional human label for a device.
+func ValidateDeviceName(raw string) (string, error) {
+	name := strings.Join(strings.Fields(raw), " ")
+	if name == "" {
+		return "This device", nil
+	}
+	runes := []rune(name)
+	if len(runes) > 40 {
+		return "", fmt.Errorf("device name must be at most 40 characters")
+	}
+	for _, r := range runes {
+		if unicode.IsControl(r) {
+			return "", fmt.Errorf("device name contains invalid characters")
 		}
 	}
 	return name, nil

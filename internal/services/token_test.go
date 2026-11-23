@@ -40,17 +40,3 @@ func TestIdentitySignerRejectsTampering(t *testing.T) {
 		t.Fatal("token signed with another secret should be rejected")
 	}
 }
-
-func TestSenderKeyIsStableAndPseudonymous(t *testing.T) {
-	first := SenderKey("550e8400-e29b-41d4-a716-446655440000")
-	second := SenderKey("550e8400-e29b-41d4-a716-446655440000")
-	if first != second {
-		t.Fatal("sender key should be stable")
-	}
-	if len(first) != 12 {
-		t.Fatalf("sender key length = %d, want 12", len(first))
-	}
-	if first == SenderKey("550e8400-e29b-41d4-a716-446655440001") {
-		t.Fatal("different devices must get different sender keys")
-	}
-}

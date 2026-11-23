@@ -16,10 +16,11 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		header := w.Header()
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("X-Frame-Options", "DENY")
-		header.Set("Referrer-Policy", "same-origin")
+		header.Set("Referrer-Policy", "no-referrer")
+		header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		header.Set("Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "+
-				"font-src 'self'; connect-src 'self' ws: wss:; object-src 'none'; "+
+			"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; "+
+				"media-src 'self' blob:; font-src 'self'; connect-src 'self' ws: wss:; object-src 'none'; "+
 				"base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
@@ -27,6 +28,9 @@ func SecurityHeaders(next http.Handler) http.Handler {
 
 // RequestLogger logs one line per request.
 func RequestLogger(logger *log.Logger) func(http.Handler) http.Handler {
+	if logger == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()

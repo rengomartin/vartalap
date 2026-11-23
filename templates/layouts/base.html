@@ -6,7 +6,11 @@
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#161616" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Vartalap — a lightweight anonymous public chat room built with IBM Carbon Design System.">
+  <meta name="description" content="Vartalap — private, end-to-end encrypted one-to-one messaging. The server never sees your messages.">
+  <meta name="csrf-token" content="{{.CSRF}}">
+  <meta name="vartalap-page" content="{{.View}}">
+  {{if .User}}<meta name="vartalap-user" content="{{.User.ID}}">
+  <meta name="vartalap-username" content="{{.User.Username}}">{{end}}
   <title>{{.Title}} · Vartalap</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/css/carbon.css">
@@ -15,12 +19,26 @@
 </head>
 <body>
   <a class="cds--skip-to-content app-skip" href="#app">Skip to content</a>
-  <div id="toast-area" aria-live="polite"></div>
-  <main id="app" class="app-shell">
+  <div id="toast-area" aria-live="polite" aria-atomic="false"></div>
+  <main id="app" class="app-shell{{if eq .View "app"}} app-shell--messenger{{end}}">
     {{template "content" .}}
   </main>
+  <noscript>
+    <p class="noscript-warning">Vartalap needs JavaScript and Web Crypto to encrypt messages in your browser. Please enable JavaScript.</p>
+  </noscript>
   <script src="/static/js/htmx.min.js"></script>
-  <script src="/static/js/ws.min.js"></script>
+  <script src="/static/js/ui.js" defer></script>
+  {{if eq .View "onboarding"}}
+  <script src="/static/js/bip39-wordlist.js" defer></script>
+  <script src="/static/js/crypto.js" defer></script>
+  <script src="/static/js/db.js" defer></script>
+  <script src="/static/js/onboarding.js" defer></script>
+  {{else if eq .View "app"}}
+  <script src="/static/js/crypto.js" defer></script>
+  <script src="/static/js/db.js" defer></script>
   <script src="/static/js/app.js" defer></script>
+  {{else if eq .View "profile"}}
+  <script src="/static/js/profile.js" defer></script>
+  {{end}}
 </body>
 </html>{{end}}

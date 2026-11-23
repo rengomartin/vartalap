@@ -8,13 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"vartalap/migrations"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Store provides access to the chat database.
+// Store provides access to the Vartalap database.
 type Store struct {
 	db *sql.DB
 }
@@ -35,25 +36,54 @@ func openDSN(dsn string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	// A single connection keeps SQLite write locking simple and predictable.
-	// Queries here are short-lived, so this is plenty for a single public room.
+	// SQLite serialises writers anyway. A single connection keeps locking
+	// predictable and avoids SQLITE_BUSY under the small workload here.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	return &Store{db: db}, nil
 }
 
-// Migrate applies all embedded schema migrations.
+// Migrate applies every embedded migration exactly once. Existing databases
+// created before schema_migrations existed are upgraded safely because the
+// original migrations are idempotent (CREATE TABLE IF NOT EXISTS).
 func (s *Store) Migrate(ctx context.Context) error {
-	statements, err := migrations.SQL()
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version    TEXT PRIMARY KEY,
+			applied_at INTEGER NOT NULL
+		)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
+	all, err := migrations.All()
 	if err != nil {
 		return err
 	}
-	for _, statement := range statements {
-		if strings.TrimSpace(statement) == "" {
+	for _, migration := range all {
+		var applied int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM schema_migrations WHERE version = ?`, migration.Version).Scan(&applied); err != nil {
+			return fmt.Errorf("check migration %s: %w", migration.Name, err)
+		}
+		if applied > 0 {
 			continue
 		}
-		if _, err := s.db.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("apply migration: %w", err)
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin migration %s: %w", migration.Name, err)
+		}
+		if _, err := tx.ExecContext(ctx, migration.SQL); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply migration %s: %w", migration.Name, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+			migration.Version, time.Now().UTC().UnixMilli()); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("record migration %s: %w", migration.Name, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %s: %w", migration.Name, err)
 		}
 	}
 	return s.db.PingContext(ctx)
