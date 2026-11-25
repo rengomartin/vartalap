@@ -16,7 +16,7 @@ No npm, bundler or frontend build step is required.
 go run ./cmd/server
 ```
 
-Open <http://localhost:8080>. `localhost` counts as a secure context, so
+Open <http://localhost:5000>. `localhost` counts as a secure context, so
 WebCrypto works over plain HTTP there. On any other host you must use HTTPS or
 the onboarding page will block with an explanatory error.
 

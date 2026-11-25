@@ -634,13 +634,13 @@ Register and send a message with `curl` (the browser normally does the crypto):
 
 ```bash
 # The device cookie is issued by any page load.
-curl -c jar.txt -b jar.txt http://localhost:8080/ > /dev/null
+curl -c jar.txt -b jar.txt http://localhost:5000/ > /dev/null
 CSRF=$(awk '$6 == "vartalap_csrf" { print $7 }' jar.txt)
 
 curl -b jar.txt -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/json' \
-  -d @register.json http://localhost:8080/api/identity/register
+  -d @register.json http://localhost:5000/api/identity/register
 
-curl -b jar.txt http://localhost:8080/api/conversations
+curl -b jar.txt http://localhost:5000/api/conversations
 ```
 
 The values in `register.json` must be produced by the browser's WebCrypto code;

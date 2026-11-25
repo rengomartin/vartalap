@@ -53,7 +53,7 @@ Requirements:
 go run ./cmd/server
 ```
 
-Open <http://localhost:8080>. **WebCrypto requires a secure context:** use
+Open <http://localhost:5000>. **WebCrypto requires a secure context:** use
 `localhost` for development or HTTPS in production. Plain HTTP on a non-local
 host will show a blocking error because the browser will not expose
 `crypto.subtle`.
@@ -79,7 +79,7 @@ All settings are environment variables with safe defaults.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `ADDR` | `:8080` | HTTP listen address |
+| `ADDR` | `:5000` | HTTP listen address |
 | `DB_PATH` | `data/vartalap.db` | SQLite database file (created automatically) |
 | `DATA_DIR` | `data` | Directory for encrypted attachment blobs and public avatars |
 | `APP_ENV` | `development` | Deployment label (`development` or `production`) |
@@ -181,7 +181,7 @@ Example systemd unit:
 WorkingDirectory=/srv/vartalap
 ExecStart=/srv/vartalap/bin/vartalap
 Environment=APP_ENV=production
-Environment=ADDR=127.0.0.1:8080
+Environment=ADDR=127.0.0.1:5000
 Environment=ALLOWED_ORIGINS=https://chat.example.com
 Restart=on-failure
 NoNewPrivileges=true

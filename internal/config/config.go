@@ -35,7 +35,7 @@ type Config struct {
 // Load reads configuration from environment variables, applying safe defaults.
 func Load() (Config, error) {
 	cfg := Config{
-		Addr:            env("ADDR", ":8080"),
+		Addr:            env("ADDR", ":5000"),
 		DBPath:          env("DB_PATH", "data/vartalap.db"),
 		DataDir:         env("DATA_DIR", "data"),
 		Environment:     env("APP_ENV", "development"),
