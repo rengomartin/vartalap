@@ -94,6 +94,40 @@ func TestConversationIsUniquePerPair(t *testing.T) {
 	}
 }
 
+func TestListConversationsForUserReturnsPeer(t *testing.T) {
+	store := testStore(t)
+	// A short deadline turns the single-connection deadlock this guards against
+	// into a fast failure instead of a hanging test.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	first, _ := seedAccount(t, store, "alice")
+	second, _ := seedAccount(t, store, "bob")
+	conversation, _, err := store.GetOrCreateConversation(ctx, first.ID, second.ID)
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+
+	list, err := store.ListConversationsForUser(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("list conversations: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != conversation.ID {
+		t.Fatalf("conversations = %#v", list)
+	}
+	if list[0].Peer.ID != second.ID || list[0].Peer.Username != "bob" {
+		t.Fatalf("peer = %#v", list[0].Peer)
+	}
+
+	reversed, err := store.ListConversationsForUser(ctx, second.ID)
+	if err != nil || len(reversed) != 1 {
+		t.Fatalf("reversed list = %#v, %v", reversed, err)
+	}
+	if reversed[0].Peer.ID != first.ID || reversed[0].Peer.Username != "alice" {
+		t.Fatalf("reversed peer = %#v", reversed[0].Peer)
+	}
+}
+
 func TestMessageDeliveryLifecycle(t *testing.T) {
 	store := testStore(t)
 	ctx := context.Background()

@@ -126,13 +126,18 @@ func (s *Store) IsConversationMember(ctx context.Context, conversationID, userID
 }
 
 // ListConversationsForUser returns every conversation for a user with the peer
-// profile attached.
+// profile attached. The peer profile is joined into the same query: the store
+// runs on a single SQLite connection, so issuing another query while rows are
+// still open would deadlock waiting for that connection.
 func (s *Store) ListConversationsForUser(ctx context.Context, userID string) ([]models.Conversation, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.id, c.user_a, c.user_b, c.created_at
-		FROM conversations c JOIN conversation_members m ON m.conversation_id = c.id
+		SELECT c.id, c.user_a, c.user_b, c.created_at,
+		       u.id, u.username, u.display_name, u.avatar_updated_at, u.discoverable
+		FROM conversations c
+		JOIN conversation_members m ON m.conversation_id = c.id
+		LEFT JOIN users u ON u.id = CASE WHEN c.user_a = ? THEN c.user_b ELSE c.user_a END
 		WHERE m.user_id = ?
-		ORDER BY c.created_at DESC`, userID)
+		ORDER BY c.created_at DESC`, userID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -142,20 +147,21 @@ func (s *Store) ListConversationsForUser(ctx context.Context, userID string) ([]
 	for rows.Next() {
 		var conversation models.Conversation
 		var createdAt int64
-		if err := rows.Scan(&conversation.ID, &conversation.UserA, &conversation.UserB, &createdAt); err != nil {
+		var peerID, username, displayName sql.NullString
+		var avatarUpdatedAt, discoverable sql.NullInt64
+		if err := rows.Scan(&conversation.ID, &conversation.UserA, &conversation.UserB, &createdAt,
+			&peerID, &username, &displayName, &avatarUpdatedAt, &discoverable); err != nil {
 			return nil, err
 		}
 		conversation.CreatedAt = time.UnixMilli(createdAt).UTC()
-		peerID := conversation.UserA
-		if peerID == userID {
-			peerID = conversation.UserB
-		}
-		peer, found, err := s.GetUserByID(ctx, peerID)
-		if err != nil {
-			return nil, err
-		}
-		if found {
-			conversation.Peer = peer.Summary()
+		if peerID.Valid {
+			conversation.Peer = models.Summary{
+				ID:              peerID.String,
+				Username:        username.String,
+				DisplayName:     displayName.String,
+				AvatarUpdatedAt: avatarUpdatedAt.Int64,
+				Discoverable:    discoverable.Int64 != 0,
+			}
 		}
 		conversations = append(conversations, conversation)
 	}
